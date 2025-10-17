@@ -1,0 +1,125 @@
+--[[  
+📦 ESP with Menu (Offline Version)
+Modified by ChatGPT
+No external HttpGet needed
+]]
+
+--// ESP Library (Kiriot22 base, minimal)
+local ESP = {
+    Enabled = false,
+    Boxes = false,
+    Tracers = false,
+    Names = false,
+    TeamColor = true,
+    Objects = {},
+    Connections = {}
+}
+
+local cam = workspace.CurrentCamera
+local function Draw(type)
+    local obj = Drawing.new(type)
+    return obj
+end
+
+function ESP:Add(obj)
+    local box = {
+        Name = obj.Name,
+        Player = obj,
+        Quad = Draw("Quad"),
+        Line = Draw("Line"),
+        Text = Draw("Text"),
+    }
+    box.Text.Center = true
+    box.Text.Size = 13
+    box.Text.Outline = true
+    box.Text.Color = Color3.new(1,1,1)
+    table.insert(self.Objects, box)
+end
+
+game:GetService("RunService").RenderStepped:Connect(function()
+    for _,v in pairs(ESP.Objects) do
+        local char = v.Player.Character
+        if ESP.Enabled and char and char:FindFirstChild("HumanoidRootPart") then
+            local root = char.HumanoidRootPart
+            local pos, vis = cam:WorldToViewportPoint(root.Position)
+            if vis then
+                if ESP.Names then
+                    v.Text.Visible = true
+                    v.Text.Position = Vector2.new(pos.X, pos.Y - 25)
+                    v.Text.Text = v.Player.Name
+                else
+                    v.Text.Visible = false
+                end
+                if ESP.Tracers then
+                    v.Line.Visible = true
+                    v.Line.From = Vector2.new(cam.ViewportSize.X/2, cam.ViewportSize.Y)
+                    v.Line.To = Vector2.new(pos.X, pos.Y)
+                else
+                    v.Line.Visible = false
+                end
+            else
+                v.Text.Visible = false
+                v.Line.Visible = false
+            end
+        else
+            v.Text.Visible = false
+            v.Line.Visible = false
+        end
+    end
+end)
+
+for _,player in pairs(game.Players:GetPlayers()) do
+    if player ~= game.Players.LocalPlayer then
+        ESP:Add(player)
+    end
+end
+game.Players.PlayerAdded:Connect(function(plr)
+    ESP:Add(plr)
+end)
+
+--// UI Menu
+local ScreenGui = Instance.new("ScreenGui", game:GetService("CoreGui"))
+local Frame = Instance.new("Frame")
+Frame.Parent = ScreenGui
+Frame.BackgroundColor3 = Color3.fromRGB(25,25,25)
+Frame.BackgroundTransparency = 0.3
+Frame.Position = UDim2.new(0.02,0,0.25,0)
+Frame.Size = UDim2.new(0,180,0,180)
+Frame.Active = true
+Frame.Draggable = true
+Frame.BorderSizePixel = 0
+
+local Title = Instance.new("TextLabel", Frame)
+Title.Text = "ESP MENU"
+Title.Size = UDim2.new(1,0,0,25)
+Title.BackgroundTransparency = 1
+Title.TextColor3 = Color3.new(1,1,1)
+Title.Font = Enum.Font.SourceSansBold
+Title.TextSize = 18
+
+local function makeBtn(text, y, func)
+    local b = Instance.new("TextButton", Frame)
+    b.BackgroundColor3 = Color3.fromRGB(50,50,50)
+    b.Size = UDim2.new(1,-10,0,30)
+    b.Position = UDim2.new(0,5,0,y)
+    b.TextColor3 = Color3.new(1,1,1)
+    b.TextSize = 16
+    b.Text = text
+    b.MouseButton1Click:Connect(func)
+    return b
+end
+
+local espbtn = makeBtn("ESP: OFF", 30, function(btn)
+    ESP.Enabled = not ESP.Enabled
+    btn.Text = "ESP: " .. (ESP.Enabled and "ON" or "OFF")
+end)
+local namebtn = makeBtn("Names: OFF", 65, function(btn)
+    ESP.Names = not ESP.Names
+    btn.Text = "Names: " .. (ESP.Names and "ON" or "OFF")
+end)
+local tracerbtn = makeBtn("Tracers: OFF", 100, function(btn)
+    ESP.Tracers = not ESP.Tracers
+    btn.Text = "Tracers: " .. (ESP.Tracers and "ON" or "OFF")
+end)
+
+print("[✅] ESP Menu Loaded (Offline version)")
