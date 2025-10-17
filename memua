@@ -1,95 +1,48 @@
---[[  
-📦 ESP with Menu (Offline Version)
-Modified by ChatGPT
-No external HttpGet needed
+--[[
+ESP with Menu (Updated - BillboardGui + UI fallback)
+Replaces Drawing API with Roblox-native GUI so it works in Studio / normal environments.
+Features: Toggle ESP, Names, Tracers, TeamColor option
+Author: modified by ChatGPT
 ]]
 
---// ESP Library (Kiriot22 base, minimal)
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local LocalPlayer = Players.LocalPlayer
+local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
+local Camera = workspace.CurrentCamera
+
+-- ESP state
 local ESP = {
     Enabled = false,
-    Boxes = false,
-    Tracers = false,
     Names = false,
+    Tracers = false,
     TeamColor = true,
-    Objects = {},
-    Connections = {}
+    Objects = {}, -- keyed by Player
 }
 
-local cam = workspace.CurrentCamera
-local function Draw(type)
-    local obj = Drawing.new(type)
-    return obj
+-- Utility: create a ScreenGui safely under PlayerGui
+local function CreateScreenGui(name)
+    local sg = Instance.new("ScreenGui")
+    sg.Name = name
+    sg.ResetOnSpawn = false
+    sg.Parent = PlayerGui
+    return sg
 end
 
-function ESP:Add(obj)
-    local box = {
-        Name = obj.Name,
-        Player = obj,
-        Quad = Draw("Quad"),
-        Line = Draw("Line"),
-        Text = Draw("Text"),
-    }
-    box.Text.Center = true
-    box.Text.Size = 13
-    box.Text.Outline = true
-    box.Text.Color = Color3.new(1,1,1)
-    table.insert(self.Objects, box)
-end
-
-game:GetService("RunService").RenderStepped:Connect(function()
-    for _,v in pairs(ESP.Objects) do
-        local char = v.Player.Character
-        if ESP.Enabled and char and char:FindFirstChild("HumanoidRootPart") then
-            local root = char.HumanoidRootPart
-            local pos, vis = cam:WorldToViewportPoint(root.Position)
-            if vis then
-                if ESP.Names then
-                    v.Text.Visible = true
-                    v.Text.Position = Vector2.new(pos.X, pos.Y - 25)
-                    v.Text.Text = v.Player.Name
-                else
-                    v.Text.Visible = false
-                end
-                if ESP.Tracers then
-                    v.Line.Visible = true
-                    v.Line.From = Vector2.new(cam.ViewportSize.X/2, cam.ViewportSize.Y)
-                    v.Line.To = Vector2.new(pos.X, pos.Y)
-                else
-                    v.Line.Visible = false
-                end
-            else
-                v.Text.Visible = false
-                v.Line.Visible = false
-            end
-        else
-            v.Text.Visible = false
-            v.Line.Visible = false
-        end
-    end
-end)
-
-for _,player in pairs(game.Players:GetPlayers()) do
-    if player ~= game.Players.LocalPlayer then
-        ESP:Add(player)
-    end
-end
-game.Players.PlayerAdded:Connect(function(plr)
-    ESP:Add(plr)
-end)
-
---// UI Menu
-local ScreenGui = Instance.new("ScreenGui", game:GetService("CoreGui"))
+-- Main UI (control menu)
+local menuGui = CreateScreenGui("ESPMenuGui")
 local Frame = Instance.new("Frame")
-Frame.Parent = ScreenGui
+Frame.Parent = menuGui
 Frame.BackgroundColor3 = Color3.fromRGB(25,25,25)
-Frame.BackgroundTransparency = 0.3
+Frame.BackgroundTransparency = 0.2
 Frame.Position = UDim2.new(0.02,0,0.25,0)
 Frame.Size = UDim2.new(0,180,0,180)
 Frame.Active = true
 Frame.Draggable = true
 Frame.BorderSizePixel = 0
 
-local Title = Instance.new("TextLabel", Frame)
+local Title = Instance.new("TextLabel")
+Title.Parent = Frame
 Title.Text = "ESP MENU"
 Title.Size = UDim2.new(1,0,0,25)
 Title.BackgroundTransparency = 1
@@ -98,28 +51,258 @@ Title.Font = Enum.Font.SourceSansBold
 Title.TextSize = 18
 
 local function makeBtn(text, y, func)
-    local b = Instance.new("TextButton", Frame)
+    local b = Instance.new("TextButton")
+    b.Parent = Frame
     b.BackgroundColor3 = Color3.fromRGB(50,50,50)
     b.Size = UDim2.new(1,-10,0,30)
     b.Position = UDim2.new(0,5,0,y)
     b.TextColor3 = Color3.new(1,1,1)
     b.TextSize = 16
     b.Text = text
-    b.MouseButton1Click:Connect(func)
+    b.MouseButton1Click:Connect(function()
+        func(b)
+    end)
     return b
 end
 
-local espbtn = makeBtn("ESP: OFF", 30, function(btn)
+local function updateBtnText(btn, prefix, val)
+    btn.Text = string.format("%s: %s", prefix, val and "ON" or "OFF")
+end
+
+local espbtn, namebtn, tracerbtn
+
+espbtn = makeBtn("ESP: OFF", 30, function(btn)
     ESP.Enabled = not ESP.Enabled
-    btn.Text = "ESP: " .. (ESP.Enabled and "ON" or "OFF")
-end)
-local namebtn = makeBtn("Names: OFF", 65, function(btn)
-    ESP.Names = not ESP.Names
-    btn.Text = "Names: " .. (ESP.Names and "ON" or "OFF")
-end)
-local tracerbtn = makeBtn("Tracers: OFF", 100, function(btn)
-    ESP.Tracers = not ESP.Tracers
-    btn.Text = "Tracers: " .. (ESP.Tracers and "ON" or "OFF")
+    updateBtnText(btn, "ESP", ESP.Enabled)
+    -- show / hide all ESP objects immediately
+    for pl,obj in pairs(ESP.Objects) do
+        if obj then
+            if obj.Billboard then
+                obj.Billboard.Enabled = ESP.Enabled and ESP.Names
+            end
+            if obj.Tracer then
+                obj.Tracer.Visible = ESP.Enabled and ESP.Tracers
+            end
+        end
+    end
 end)
 
-print("[✅] ESP Menu Loaded (Offline version)")
+namebtn = makeBtn("Names: OFF", 65, function(btn)
+    ESP.Names = not ESP.Names
+    updateBtnText(btn, "Names", ESP.Names)
+    for pl,obj in pairs(ESP.Objects) do
+        if obj and obj.Billboard then
+            obj.Billboard.Enabled = (ESP.Enabled and ESP.Names)
+        end
+    end
+end)
+
+tracerbtn = makeBtn("Tracers: OFF", 100, function(btn)
+    ESP.Tracers = not ESP.Tracers
+    updateBtnText(btn, "Tracers", ESP.Tracers)
+    for pl,obj in pairs(ESP.Objects) do
+        if obj and obj.Tracer then
+            obj.Tracer.Visible = (ESP.Enabled and ESP.Tracers)
+        end
+    end
+end)
+
+-- Helper: create ESP GUIs for a player
+local function createESPForPlayer(player)
+    if player == LocalPlayer then return end
+    -- container table
+    local container = {}
+
+    -- BillboardGui for name (follows head or HumanoidRootPart)
+    local bb = Instance.new("BillboardGui")
+    bb.Name = "ESP_Billboard"
+    bb.Size = UDim2.new(0,100,0,40)
+    bb.AlwaysOnTop = true
+    bb.ExtentsOffset = Vector3.new(0,2,0)
+    bb.Enabled = false
+
+    local nameLabel = Instance.new("TextLabel")
+    nameLabel.Size = UDim2.new(1,0,1,0)
+    nameLabel.BackgroundTransparency = 1
+    nameLabel.TextScaled = true
+    nameLabel.Font = Enum.Font.SourceSansBold
+    nameLabel.TextStrokeTransparency = 0.2
+    nameLabel.Parent = bb
+    nameLabel.Text = player.Name
+
+    -- Parent the billboard to a small folder under Player (so it replicates in PlayerGui)
+    -- We'll use a dedicated ScreenGui to store per-player tracers too
+    local playerGui = CreateScreenGui("ESP_" .. player.UserId)
+    bb.Parent = playerGui
+    container.Billboard = bb
+    container.NameLabel = nameLabel
+    container.ParentGui = playerGui
+
+    -- Tracer fallback: if Drawing available, use it; otherwise use ImageLabel inside the same ScreenGui
+    local success, _ = pcall(function()
+        local d = Drawing.new("Line")
+        d.Visible = false
+        d.From = Vector2.new(0,0)
+        d.To = Vector2.new(0,0)
+        d = nil
+    end)
+
+    if success then
+        -- Use Drawing for tracers (when executor provides it)
+        container.UseDrawing = true
+        container.DrawingLine = Drawing.new("Line")
+        container.DrawingLine.Color = Color3.new(1,1,1)
+        container.DrawingLine.Thickness = 1
+        container.DrawingLine.Visible = false
+    else
+        -- Fallback: use ImageLabel as a rotated thin bar
+        local tracer = Instance.new("ImageLabel")
+        tracer.Name = "Tracer"
+        tracer.Size = UDim2.new(0,2,0,10) -- height will be changed dynamically
+        tracer.AnchorPoint = Vector2.new(0.5,0)
+        tracer.Position = UDim2.new(0,0,0,0)
+        tracer.BackgroundColor3 = Color3.new(1,1,1)
+        tracer.BackgroundTransparency = 0
+        tracer.Image = ""
+        tracer.Visible = false
+        tracer.Parent = playerGui
+        container.UseDrawing = false
+        container.Tracer = tracer
+    end
+
+    ESP.Objects[player] = container
+end
+
+-- Clean up when player leaves
+local function removeESPForPlayer(player)
+    local obj = ESP.Objects[player]
+    if not obj then return end
+    -- destroy GUIs
+    if obj.ParentGui and obj.ParentGui.Parent then
+        obj.ParentGui:Destroy()
+    end
+    if obj.UseDrawing and obj.DrawingLine then
+        pcall(function() obj.DrawingLine:Remove() end)
+    end
+    ESP.Objects[player] = nil
+end
+
+-- initialize for existing players
+for _,pl in pairs(Players:GetPlayers()) do
+    if pl ~= LocalPlayer then
+        createESPForPlayer(pl)
+    end
+end
+
+Players.PlayerAdded:Connect(function(pl)
+    -- small delay to ensure PlayerGui exists
+    pl.CharacterAdded:Wait()
+    createESPForPlayer(pl)
+end)
+
+Players.PlayerRemoving:Connect(function(pl)
+    removeESPForPlayer(pl)
+end)
+
+-- Utility: get the 2D viewport point and visibility
+local function worldToViewportPoint(pos)
+    local screenPoint, onScreen = Camera:WorldToViewportPoint(pos)
+    return Vector2.new(screenPoint.X, screenPoint.Y), onScreen
+end
+
+-- Update loop
+RunService.RenderStepped:Connect(function()
+    local viewportSize = Camera.ViewportSize
+    local bottomCenter = Vector2.new(viewportSize.X/2, viewportSize.Y)
+
+    for player,obj in pairs(ESP.Objects) do
+        local char = player.Character
+        if char and char:FindFirstChild("HumanoidRootPart") then
+            local root = char.HumanoidRootPart
+            local pos2d, onScreen = worldToViewportPoint(root.Position + Vector3.new(0,2,0))
+
+            -- update name billboard attachment
+            if obj.Billboard and obj.NameLabel then
+                -- reposition the BillboardGui's adornee to the root (BillboardGui uses Adornee when parented to workspace;
+                -- here we set ExtentsOffset and rely on Camera projection. To ensure it follows, set Adornee to a dummy part if available.)
+                -- Simpler: attach the billboard in WorldSpace by parenting to a small Attachment Part under workspace.
+                -- We'll create a small invisible part under workspace for the billboard if not already.
+                if not obj._AdorneePart or not obj._AdorneePart.Parent then
+                    local adornPart = Instance.new("Part")
+                    adornPart.Name = "ESPAdornPart_" .. player.Name
+                    adornPart.Anchored = true
+                    adornPart.CanCollide = false
+                    adornPart.Transparency = 1
+                    adornPart.Size = Vector3.new(0.1,0.1,0.1)
+                    adornPart.Parent = workspace
+                    obj._AdorneePart = adornPart
+                    obj.Billboard.Adornee = adornPart
+                end
+                if obj._AdorneePart then
+                    obj._AdorneePart.CFrame = CFrame.new(root.Position + Vector3.new(0,2.2,0))
+                end
+
+                -- Team color
+                if ESP.TeamColor and player.Team and player.Team.TeamColor then
+                    local col = player.Team.TeamColor.Color
+                    obj.NameLabel.TextColor3 = col
+                else
+                    obj.NameLabel.TextColor3 = Color3.new(1,1,1)
+                end
+
+                obj.Billboard.Enabled = (ESP.Enabled and ESP.Names and onScreen)
+            end
+
+            -- tracers
+            if obj.UseDrawing and obj.DrawingLine then
+                if ESP.Enabled and ESP.Tracers and onScreen then
+                    obj.DrawingLine.Visible = true
+                    obj.DrawingLine.From = Vector2.new(bottomCenter.X, bottomCenter.Y)
+                    obj.DrawingLine.To = pos2d
+                    -- team color
+                    if ESP.TeamColor and player.Team and player.Team.TeamColor then
+                        obj.DrawingLine.Color = player.Team.TeamColor.Color
+                    else
+                        obj.DrawingLine.Color = Color3.new(1,1,1)
+                    end
+                else
+                    obj.DrawingLine.Visible = false
+                end
+            elseif obj.Tracer then
+                if ESP.Enabled and ESP.Tracers and onScreen then
+                    obj.Tracer.Visible = true
+                    -- compute delta
+                    local from = bottomCenter
+                    local to = pos2d
+                    local dx = to.X - from.X
+                    local dy = to.Y - from.Y
+                    local length = math.sqrt(dx*dx + dy*dy)
+                    -- set size (height = length)
+                    obj.Tracer.Size = UDim2.new(0,2,0,length)
+                    -- position: place the tracer's top at the bottom center
+                    local mid = from
+                    obj.Tracer.Position = UDim2.new(0, mid.X, 0, mid.Y)
+                    -- rotation: math.deg(math.atan2(dy, dx)) - 90 to point from bottom upward
+                    local angle = math.deg(math.atan2(dy, dx)) + 90
+                    obj.Tracer.Rotation = angle
+                    -- color
+                    if ESP.TeamColor and player.Team and player.Team.TeamColor then
+                        obj.Tracer.BackgroundColor3 = player.Team.TeamColor.Color
+                    else
+                        obj.Tracer.BackgroundColor3 = Color3.new(1,1,1)
+                    end
+                else
+                    obj.Tracer.Visible = false
+                end
+            end
+
+        else
+            -- no character: hide visuals
+            if obj.Billboard then obj.Billboard.Enabled = false end
+            if obj.DrawingLine then obj.DrawingLine.Visible = false end
+            if obj.Tracer then obj.Tracer.Visible = false end
+        end
+    end
+end)
+
+print("[✅] ESP Menu Loaded (BillboardGui + Tracer fallback)")
